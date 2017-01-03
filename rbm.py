@@ -8,6 +8,8 @@ import time
 import numpy as np
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
+import PIL.Image as Image
+from util import tile_raster_images
 
 class RBM(object):
     """ Restricted Bolzmann Machine """
@@ -17,10 +19,11 @@ class RBM(object):
         data,
         n_visible=784,
         n_hidden=500,
-        k=15,
+        n_chains=20,
+        n_samples=10,
         image_width=28,
         y_dim=10,
-        batch_size=64,
+        batch_size=256,
         W=None,
         hbias=None,
         vbias=None):
@@ -55,8 +58,10 @@ class RBM(object):
         self.n_hidden = n_hidden
         self.image_width = image_width
         self.y_dim = y_dim
-        self.k = k
+        self.n_chains = n_chains
+        self.n_samples = n_samples
         self.batch_size = batch_size
+        self.k = 1
 
         tf.set_random_seed(1234)
 
@@ -84,7 +89,6 @@ class RBM(object):
 
     def train(self):
         data_X = self.data.images
-        print (tf.shape(data_X))
         optim = tf.train.GradientDescentOptimizer(0.1)\
             .minimize(self.loss)
         
@@ -93,7 +97,7 @@ class RBM(object):
         counter = 1
         start_time = time.time()
         
-        for epoch in range(20):
+        for epoch in range(2):
             batch_idxs = len(data_X) // self.batch_size
 
             for idx in range(0, batch_idxs):
@@ -107,8 +111,44 @@ class RBM(object):
                 print("Epoch: [%2d] [%4d/%4d] time: %4.4f, loss: %.8f" \
                     % (epoch, idx, batch_idxs, time.time() - start_time, loss))
                 
-    def sample(self):
-        pass
+            image = Image.fromarray(
+            tile_raster_images(
+                X=tf.transpose(self.W).eval(),
+                img_shape=(28, 28),
+                tile_shape=(25, 20),
+                tile_spacing=(1, 1)
+                )
+            )
+            image.save("rbm_%d.png" % epoch)
+                
+    def sample(self, test_data):
+        number_of_test_samples = test_data.images.shape[0]
+        rng = np.random.RandomState(123)
+        test_idx = rng.randint(number_of_test_samples - self.n_chains)
+        
+        print(number_of_test_samples)
+        print(test_data.images[test_idx:test_idx + self.n_chains].shape)
+        
+        self.persistent_vis_chain = tf.Variable(test_data.images[test_idx:test_idx + self.n_chains])
+
+        # create a space to store the image for plotting ( we need to leave
+        # room for the tile_spacing as well)
+        image_data = np.zeros(
+            (29 * self.n_samples + 1, 29 * self.n_chains - 1),
+            dtype='uint8')
+        
+        for idx in range(self.n_samples):
+            # generate `plot_every` intermediate samples that we discard,
+            # because successive samples in the chain are too correlated
+            vis_mf, vis_sample = self.sample_fn()
+            print(' ... plotting sample %d' % idx)
+            image_data[29 * idx:29 * idx + 28, :] = tile_raster_images(
+                X=vis_mf.eval(),
+                img_shape=(28, 28),
+                tile_shape=(1, self.n_chains),
+                tile_spacing=(1, 1)
+                )
+
         
     def sample_prob(self, probs):
         return tf.nn.relu(tf.sign(probs - tf.random_uniform(tf.shape(probs))))
@@ -226,10 +266,23 @@ class RBM(object):
             
         return loss
         
+    def sample_fn(self):
+
+        # perform actual negative phase
+        for k in range(10):
+            print(k)
+            [ presig_hids, hid_mfs, hid_samples,
+            presig_vis, vis_mfs, self.persistent_vis_chain ] = self.gibbs_vhv(self.persistent_vis_chain)
+            
+        
+        return [vis_mfs, self.persistent_vis_chain]
+        
 
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
 with tf.Session() as sess:
     rbm = RBM(sess, mnist.train)
+    
     rbm.train()
+    rbm.sample(mnist.test)
     
