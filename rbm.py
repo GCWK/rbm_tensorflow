@@ -79,21 +79,20 @@ class RBM(object):
         
         self.build_model()
         
+        tf.global_variables_initializer().run()
+        
     def build_model(self):
         self.input = tf.placeholder(tf.float32, [self.batch_size, 784],
                                      name='real_images')
         
         self.loss = self.get_cost_updates(input=self.input, k=self.k)
         
-        #self.saver = tf.train.Saver()
 
     def train(self):
         data_X = self.data.images
         optim = tf.train.GradientDescentOptimizer(0.1)\
             .minimize(self.loss)
-        
-        tf.global_variables_initializer().run()
-        
+
         counter = 1
         start_time = time.time()
         
@@ -120,16 +119,22 @@ class RBM(object):
                 )
             )
             image.save("rbm_%d.png" % epoch)
+            
+            
+    #def sample(self, test_data):
+        
+        #tf.placeholder(tf.float32, [self.batch_size, 784],
+        #                             name='real_images')
+        
+        #self.sess.run([optim], feed_dict={self.input: test_data})
                 
     def sample(self, test_data):
         number_of_test_samples = test_data.images.shape[0]
         rng = np.random.RandomState(123)
         test_idx = rng.randint(number_of_test_samples - self.n_chains)
+
         
-        print(number_of_test_samples)
-        print(test_data.images[test_idx:test_idx + self.n_chains].shape)
-        
-        self.persistent_vis_chain = tf.Variable(test_data.images[test_idx:test_idx + self.n_chains])
+        self.persistent_vis_chain = test_data.images[test_idx:test_idx + self.n_chains]
 
         # create a space to store the image for plotting ( we need to leave
         # room for the tile_spacing as well)
@@ -141,6 +146,7 @@ class RBM(object):
             # generate `plot_every` intermediate samples that we discard,
             # because successive samples in the chain are too correlated
             vis_mf, vis_sample = self.sample_fn()
+            
             print(' ... plotting sample %d' % idx)
             image_data[29 * idx:29 * idx + 28, :] = tile_raster_images(
                 X=vis_mf.eval(),
@@ -148,6 +154,9 @@ class RBM(object):
                 tile_shape=(1, self.n_chains),
                 tile_spacing=(1, 1)
                 )
+        # construct image
+        image = Image.fromarray(image_data)
+        image.save('samples.png')
 
         
     def sample_prob(self, probs):
@@ -270,7 +279,6 @@ class RBM(object):
 
         # perform actual negative phase
         for k in range(10):
-            print(k)
             [ presig_hids, hid_mfs, hid_samples,
             presig_vis, vis_mfs, self.persistent_vis_chain ] = self.gibbs_vhv(self.persistent_vis_chain)
             
@@ -284,5 +292,5 @@ with tf.Session() as sess:
     rbm = RBM(sess, mnist.train)
     
     rbm.train()
-    rbm.sample(mnist.test)
     
+    rbm.sample(mnist.test)
